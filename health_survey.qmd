@@ -1,0 +1,852 @@
+
+
+```{r}
+
+# Clear objects from the environment memory that may be leftover from previous
+#versions of your code or other assignments by running the following line:
+rm(list = ls())
+
+### Load the libraries you need
+
+library(tidyverse) 
+library(caret)
+#library(Hmisc)
+library(lsr)
+library(olsrr)
+library(psych)
+library(lm.beta)
+
+### Load the Data
+### Load the data file
+### Do not change this line
+brf <- read_csv("BRFSS2015_650.csv")
+```
+
+------------------------------------------------------------------------
+
+## Questions
+
+------------------------------------------------------------------------
+
+### Q10
+
+Address the values of each of the variables (use the codebook for this and include your answer as comments). For instance, is "none" equal to a value other than 0? Are there extra decimals implied? Are there other values that should be excluded based on the responses they represent? Which variable will you seek to predict from the other variables? Answer these questions in the *Q10 Discussion:* section below the code chunk. Update the dataset to account for these values for the remainder of the questions in this part.
+
+
+```{r}
+### Do not edit the following line. It is used by CodeGrade.
+# CG Q10 # 
+
+### TYPE YOUR CODE BELOW ###
+
+# EDUCA: What is the highest grade or year of school you completed?
+# 1Never attended school or only kindergarten
+# 2 Grades 1 through 8, #3 Grades 9 through 11, # 4 Grade 12 or GED 
+# 5 College 1 year to 3 years,#6 College 4 years or more, #9 Refused
+#BLANK Not asked or Missing
+
+#EMPLOY1: Description Are you currently…?
+#1 Employed for wages, # 2 Self-employed, #3 Out of work for 1 year or more 
+#4 Out of work for less than 1 year, #5 A homemaker, #6 A student 
+#7 Retired,  #8 Unable to work, # 9 Refused
+
+#WEIGHT2: 50 - 0999 Weight (pounds), 7777 Don’t know/Not sure, 
+#9000 - 9998 Weight (kilograms), 9999 Refused, BLANK Not asked or Missing
+
+#HEIGHT3: 200 - 711 Height (ft/inches), 7777 Don’t know/Not sure,
+#9000 - 9998 Height (meters/cm), 9999 Refused, BLANK Not asked or Missing
+
+
+#from brf, selecting only columns I will be using. 
+##usEfilter func on HEIGHT3, WEIGHT2 to remove na values. filter HEIGHT3 <=711
+# filter HEIGHT >=200, This will return those who reported their height in feet
+#and inches. educa remove the those who refused to answer(9) and missing 
+#values (blank). For employ1 keep all those who answered (values  <= 6)
+#mutate height3 to seperate feet from inches. Multiply feet by 12 to make it
+#inches and then add together and put in under the var name HEIGHT3
+#the cleaned df was assigned to Q10
+
+
+Q10 <- brf |>
+  select(EDUCA, EMPLOY1, WEIGHT2, HEIGHT3) |>
+  filter( !is.na(HEIGHT3),!is.na(WEIGHT2), HEIGHT3 <= 711, HEIGHT3>= 200,
+            EDUCA <= 6, EMPLOY1 <=8, WEIGHT2 <999) |>
+  mutate(feet = as.numeric(substr(HEIGHT3, 1, 1))) |>
+  mutate(inches = as.numeric(substr(HEIGHT3, 2, nchar(HEIGHT3)))) |>
+  mutate(HEIGHT3 = 12 * feet + inches)
+
+summary(Q10)
+```
+
+### Q10 Discussion:
+Your Q10 discussion goes here. Feel free to add more lines as needed.
+
+
+EDUCA: The values BLANK - Not asked or Missing & 9 - Refused are not helpful,
+ so those values were filtered out
+EMPLOY1:  values 9 - Refused,is not helpful, so it was filtered out.
+WEIGHT2:Will be using weight in pounds, so this mean we will only be keeping
+values < 999, all other values will be filtered out.
+HEIGHT3: Will only be using height in inches. This is done by targeting the 
+feet/inches group with values between and including 200 and 711. The feet are 
+separated from the inches and then converted to inches by multiplying the value
+by 12, this is added to inches and assigned to HEIGHT3.
+
+For this project I will use height, weight, and employment type to predict
+education level.
+ 
+
+
+### Q11
+
+Remove any outliers for each applicable variable. Make sure you are updating the dataset from Q10 and using this dataset for the remainder of the questions. Briefly explain why you chose the method you used in the *Q11 Discussion* section. Within your code chunk, provide comments explaining what your code is doing.
+
+
+```{r}
+### Do not edit the following line. It is used by CodeGrade.
+# CG Q11 # 
+
+### TYPE YOUR CODE BELOW ###
+
+#Calculate the the 99.85% to establish upper bound
+#3 SD above the mean (outliers)
+#99.85%
+Q10_EDUCA_upper <- quantile(
+ Q10$EDUCA, 0.9985, na.rm = TRUE)
+
+Q10_EMPLOY1_upper <- quantile(
+ Q10$EMPLOY1, 0.9985, na.rm = TRUE)
+
+Q10_WEIGHT2_upper <-quantile(
+  Q10$WEIGHT2, 0.9985, na.rm=TRUE)
+
+Q10_HEIGHT3_upper <-quantile(
+  Q10$HEIGHT3, 0.9985, na.rm=TRUE)
+
+
+#Calculate the the 0.15%% to establish lower bound
+# -3 SD from mean (outliers)
+# 0.15% 
+Q10_EDUCA_lower <- quantile(
+  Q10$EDUCA, 0.0015, na.rm = TRUE)
+
+Q10_EMPLOY1_lower <- quantile(
+  Q10$EMPLOY1, 0.0015, na.rm = TRUE)
+
+Q10_WEIGHT2_lower <-quantile(
+  Q10$WEIGHT2, 0.0015, na.rm=TRUE)
+
+Q10_HEIGHT3_lower <-quantile(
+  Q10$HEIGHT3, 0.0015, na.rm=TRUE)
+
+
+#select values that are outliers
+#using the 99.85% and 0.15% range calculated above for each var,
+#assinging the values outside the range to var called values_out  
+values_out <- which(
+    Q10$EDUCA > Q10_EDUCA_upper | 
+    Q10$EDUCA < Q10_EDUCA_lower |
+    Q10$EMPLOY1 > Q10_EMPLOY1_upper |
+    Q10$EMPLOY1 < Q10_EMPLOY1_lower |
+    Q10$WEIGHT2 > Q10_WEIGHT2_upper |
+    Q10$WEIGHT2 < Q10_WEIGHT2_lower |
+    Q10$HEIGHT3 > Q10_HEIGHT3_upper |
+    Q10$HEIGHT3 < Q10_HEIGHT3_lower
+)
+
+#create a new var that takes the df Q10 - all the outliers from values_out var 
+Q11 <- Q10[-values_out,]
+
+str(Q11)
+```
+
+```{r}
+#The minimum for EDUCA is now 2, after removing outliers.
+summary(Q11)
+```
+
+```{r}
+#Q11B WILL BE USED LATER IN THE PROJECT FOR CORRELATION MATRIX
+Q11B <- Q11
+```
+
+### Q11 Discussion:
+Your Q11 discussion goes here. Feel free to add more lines as needed.
+Briefly explain why you chose the method you used in the *Q11 Discussion* section
+
+I chose to use the method for two reasons:
+  1. This is how it was taught in Module 4.
+  2. Compared to other ways I found using outside resources, I found this to
+    be visually easier for me to write out and read. 
+    
+    
+    
+### Q12
+
+Complete exploratory analyses (for each variable) doing appropriate visualizations with ggplot2. Include visualizations that incorporate a combination of your variables within one plot. Provide an organized discussion of your observations for each of the plots in the *Q12 Discussion* section below.
+
+```{r}
+### Do not edit the following line. It is used by CodeGrade.
+# CG Q12 # 
+
+### TYPE YOUR CODE BELOW ###
+```
+
+
+```{r}
+#factoring categorical data for later use 
+Q11$EMPLOY1_factored <-as.factor(Q11$EMPLOY1)
+Q11$EDUCA_factored <-as.factor(Q11$EDUCA)
+```
+
+
+```{r}
+#histogram of weight
+weight_hist <- ggplot(data = Q11, aes(WEIGHT2)) + 
+  geom_histogram() +
+  labs(title = "Histogram of the Weight of participants",
+    x = "Weight (pounds)",
+    y = "Partisipants") 
+weight_hist
+```
+```{r}
+#histogram of height
+height_bar <- ggplot(data = Q11, aes(factor(HEIGHT3))) + 
+  geom_bar() +
+  labs(title = "Bar of the Height of participants",
+    x = "Height (inches)",
+    y = "Participants") 
+
+height_bar
+```
+
+```{r}
+# Q-Q plot to check for normality of weight 
+weight_qq <- ggplot(Q11, aes(sample = WEIGHT2)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot Weight of Participants") 
+
+weight_qq
+```
+```{r}
+# Q-Q plot to check for normality of WEIGHT2, grouped by education level
+weight_qq_education <- ggplot(Q11,
+                              aes(sample = WEIGHT2, 
+                                  colour = factor(EDUCA))) +
+  stat_qq() +
+  stat_qq_line() +
+  scale_color_manual(labels = c("Kindergarden or less",
+                                "Grade 1-8", 
+                              "Grade 9 -11",
+                              "12 or GED", 
+                              "College 1-3 yrs", 
+                              "College 4 yrs +"),
+                     values = factor(c(1, 2, 3, 4, 5, 6)), 
+                     name = 'Education Type') +
+  labs(title = "Q-Q Plot Weight of Participants Grouped By Education") 
+
+weight_qq_education
+```
+```{r}
+# Q-Q plot to check for normality of height variable
+height_qq <- ggplot(Q11, aes(sample = HEIGHT3)) +
+  stat_qq() +
+  stat_qq_line() +
+  labs(title = "Q-Q Plot Height of Participants") 
+
+height_qq
+```
+
+```{r}
+# Q-Q plot check for normality of height, grouped by education level
+height_qq_education <- ggplot(Q11,
+                              aes(sample = HEIGHT3, 
+                                  colour = factor(EDUCA))) +
+  stat_qq() +
+  stat_qq_line() +
+  scale_color_manual(labels = c(
+                              "Grade 1-8", 
+                              "Grade 9 -11",
+                              "12 or GED", 
+                              "College 1-3 yrs", 
+                              "College 4 yrs +"),
+                     values = factor(c(1, 2, 3, 4, 5, 6)), 
+                     name = 'Education Type') +
+  labs(title = "Q-Q Plot Height of Participants Grouped By Education") 
+
+height_qq_education
+```
+```{r}
+#bar graph showing count for each education level
+education_bar <- ggplot(Q11,aes(EDUCA)) +
+  geom_bar(aes(), fill = 'blue', color = 'black') +
+  geom_text(aes( label = ..count..),
+            stat = "count", 
+            vjust = 0, 
+            nudge_y = .01) +
+  labs(title = "Count of Education Level",
+    x = "Education Level",
+    y = "Count") +
+  scale_x_discrete(limits=c("Kindergarden or less",
+                              "Grade 1-8", 
+                              "Grade 9 -11",
+                              "12 or GED", 
+                              "College 1-3 yrs", 
+                              "College 4 yrs +")) +
+  theme(axis.text.x = element_text(angle = 90)) 
+
+education_bar
+```
+
+
+```{r}
+#bar graph showing count for each employment type
+employment_bar <- ggplot(Q11,aes(EMPLOY1)) +
+  geom_bar(aes(), fill = 'green', color = 'red') +
+  geom_text(aes( label = ..count..),
+            stat = "count", 
+            vjust = 0, 
+            nudge_y = .01) +
+  labs(title = "Count of Employment Types",
+    x = "Employment Type",
+    y = "Count") +
+  scale_x_discrete(limits=c("Employed for wages",
+                            "Self-employed", 
+                            "Out of work > 1 year",
+                            "Out of work < 1 year",
+                            "homemaker",
+                            "student","Retired", 
+                            "Unable to work")) +
+  theme(axis.text.x = element_text(angle = 90)) 
+
+employment_bar
+
+```
+
+```{r}
+# bar graph of education filled with employment type
+educa_filled_employment_type <- ggplot(Q11, aes(fill=EMPLOY1_factored)) +
+   geom_bar(aes(x = EDUCA)) +
+  labs(title = "Education and Employment Type",
+    x = "Education",
+    y = "Partisipants") +
+  scale_x_discrete(limits=c("Kindergarden or less",
+                            "Grade 1-8", 
+                            "Grade 9 -11",
+                            "12 or GED", 
+                            "College 1-3 yrs", 
+                            "College 4 yrs +")) +
+  theme(axis.text.x = element_text(angle = 90))+
+  scale_fill_discrete(name="Type of Employment",
+                         labels=c("Employed for wages",
+                            "Self-employed", 
+                            "Out of work > 1 year",
+                            "Out of work < 1 year",
+                            "homemaker", 
+                            "student","Retired", 
+                            "Unable to work")) 
+educa_filled_employment_type
+```
+
+```{r}
+#box plot of education and weight
+educa_weight_box <- ggplot(data = Q11, mapping = aes(x = EDUCA_factored, y = WEIGHT2)) +
+  geom_boxplot() +
+  scale_x_discrete(labels=c(
+                            "Grade 1-8", 
+                            "Grade 9 -11",
+                            "12 or GED", 
+                            "College 1-3 yrs", 
+                            "College 4 yrs +"))+
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Education and WEIGHT",
+    x = "Education",
+    y = "WEIGHT (pounds)") 
+
+educa_weight_box
+```
+
+```{r}
+#box plot of education and height
+educa_height_box <- ggplot(data = Q11, 
+                           mapping = aes(x = EDUCA_factored, y = HEIGHT3)) +
+  geom_boxplot() +
+  scale_x_discrete(labels=c(
+                            "Grade 1-8", 
+                            "Grade 9 -11",
+                            "12 or GED", 
+                            "College 1-3 yrs", 
+                            "College 4 yrs +"))+
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "Education and HEIGHT",
+    x = "Education",
+    y = "HEIGHT (inches)") 
+
+educa_height_box
+```
+
+```{r}
+#scatter plot height predicting weight
+h_w_scatter <- ggplot(
+  data = Q11,mapping = aes(x = HEIGHT3,y = WEIGHT2)) +
+  geom_point() +
+  geom_smooth(method = lm) +
+  guides(color=guide_legend("Education")) +
+  labs(title = "HEIGHT and WEIGHT",
+    x = "Height (inches)",
+    y = "WEIGHT (pounds)") 
+h_w_scatter
+```
+
+
+
+
+```{r}
+#density graft of weight grouped by education level
+weight_edu_density <- ggplot(Q11, aes(x = WEIGHT2,color = EDUCA_factored)) +
+  geom_density(linewidth = 0.75)  +
+  scale_color_manual(labels = c(
+                              "Grade 1-8", 
+                              "Grade 9 -11",
+                              "12 or GED", 
+                              "College 1-3 yrs", 
+                              "College 4 yrs +"),
+                     values = factor(c(1, 2, 3, 4, 5, 6)), 
+                     name = 'Education Level') +
+  labs(title = "Weight by Education Level",
+       x = "WEIGHT (Pounds)")
+
+weight_edu_density
+```
+
+```{r}
+#density graft of height grouped by education level
+height_edu_density <- ggplot(Q11, aes(x = HEIGHT3,color = EDUCA_factored)) +
+  geom_density(linewidth = 0.75)  +
+  scale_color_manual(labels = c(
+                              "Grade 1-8", 
+                              "Grade 9 -11",
+                              "12 or GED", 
+                              "College 1-3 yrs", 
+                              "College 4 yrs +"),
+                     values = factor(c(1, 2, 3, 4, 5, 6)), 
+                     name = 'Education Level') +
+  labs(title = "Height by Education Level",
+       x = "HEIGHT (inches)")
+
+height_edu_density
+```
+
+### Q12 Discussion:
+Your Q12 discussion goes here. Feel free to add more lines as needed.
+
+histogram of WEIGHT2: Shows a slight right (positive) skew, telling us most 
+data is to the left of the peak.
+
+bar of HEIGHT3: has a model that looks roughly normally distributed. There are
+prominent tails, this indicates kurtosis, meaning outliers on the shorter and
+taller tails.
+
+Q-Q plot of WEIGHT2 has a U shaped pattern above the line. This tells us that 
+there is deviation from the standard normal distribution,and that the data has 
+a right skew.
+
+Q-Q plot of WEIGHT2, grouped by education level: This models follows the same 
+above the line U shaped pattern for each education level. This tells us that 
+there is deviation from the standard normal distribution,and that the data has 
+a right skew.
+
+Q-Q plot of HEIGHT3: Has an S - shaped pattern. This tells us that there is 
+deviation from the standard normal distribution, and that there is kurtosis, 
+meaning there are outliers on both tails.
+
+Q-Q plot of HEIGHT3, grouped by education level:Has an S - shaped pattern. This
+tells us that there is deviation from the standard normal distribution, and that
+there is kurtosis, meaning there are outliers on both tails. On both the bottom
+left and top right the education level college 4 years + has the most noticeable 
+and prominent deviation from the line.
+
+bar graph showing count for each education level: This shows that the most 
+common education level for the participants in this study is college 4 +, with 
+149118 people. The next most common grade level is 12 or GED with 111646 people. 
+College 1-3 years is a close third with 110266 people. least most common
+education level is Kindergarten or less with 0 people.
+
+bar graph showing count for each employment type: The most common employment 
+type, by far, is employed for wage, with 163251 people reporting this as their
+employment type. The second most common is retired with 122554 people reporting.
+The least common is out of work < 1 year with 8265 people.
+
+bar graph of education filled with employment type: This model is busy, but can
+still show some good information. The model helps most is to visually show how 
+employed by wage is a dominant employment type for most education levels.
+
+box plot of education and weight: This box plot show a very similar size and 
+shape in the box plots for each education level. The median line has a very 
+similar location in the box plots for each education level, and each education
+level has a similar pattern for outlies.
+
+box plot of education and height: These box plots also have a slight upward 
+change with increase in education. There is slight difference in the size of the
+boxes and the location of the median line in each box. This shows that there is
+a slight increase in height as education level increases. 
+
+scatter plot height predicting weight:  This shows a weak positive linear 
+relationship. as height increases, so will weight. 
+
+density graft of weight grouped by education level: This modes shows that the
+weight at each education level follows a similar right (positive) skew. The peak
+of each education level show where the values are concentrated. Each education
+level follows a similar pattern.
+
+density graft of height grouped by education level: This modes shows that height
+at each education level follows a bell curve.The most distinct aspect of the
+model wide shape and thick tails, giving a mesokurtic pattern. This tells us 
+there are a lot of outliers on both ends. Education levels grade 1-8 and 
+grade 9-11 have a slight right skew, while  12 or GED, college 1-3 years, and
+college 4 years + have a slight left skew. 
+### Q13
+
+Run all of the appropriate basic descriptive statistics for each of your variables.  What do these statistics reveal? Be sure to address each variable in the "Q13 Discussion" below.
+
+```{r}
+### Do not edit the following line. It is used by CodeGrade.
+# CG Q13 # 
+
+### TYPE YOUR CODE BELOW ###
+```
+
+DESCRIPTIVE STATISTICS FOR EDUCA VARIABLE
+
+```{r}
+#find the percentage for each education group
+educa_percentages <- round(prop.table(table(Q11$EDUCA)) * 100, 2)
+educa_percentages
+```
+
+
+```{r}
+#how many times each values is present in the column
+educa_count <-table(Q11$EDUCA)
+educa_count
+```
+
+
+```{r}
+#mode
+educa_mode <-educa_count[educa_count == max(table(Q11$EDUCA))]
+educa_mode
+```
+
+DESCRIPTIVE STATISTICS FOR EMPLOY1 VARIABLE
+
+```{r}
+#find the percentage for each employment type
+employ1_percentages <-  round(prop.table(table(Q11$EMPLOY1)) * 100, 2)
+employ1_percentages
+```
+
+
+```{r}
+#how many times each values is present in the column
+employ1_count <-table(Q11$EMPLOY1)
+employ1_count
+```
+
+```{r}
+#mode
+employ1_mode <-employ1_count[employ1_count == max(table(Q11$EMPLOY1))]
+employ1_mode
+
+```
+
+
+DESCRIPTIVE STATISTICS FOR HEIGHT3 VARIABLE
+
+```{r}
+#summary statistics
+height_summary <- summary(Q11$HEIGHT3)
+height_summary
+```
+
+
+```{r}
+#how many times each values is present in the column
+height_count <-table(Q11$HEIGHT3)
+print("height count")
+height_count
+
+#mode
+height_mode <-height_count[height_count ==max(table(Q11$HEIGHT3))]
+print("height mode")
+height_mode
+```
+
+
+DESCRIPTIVE STATISTICS FOR WEIGHT2 VARIABLE
+```{r}
+#summary statistics
+weight_summary <- summary(Q11$WEIGHT2)
+weight_summary
+```
+
+
+```{r}
+#mode
+#how many times each values is present in the column
+weight_count <-table(Q11$WEIGHT2)
+weight_count
+
+weight_mode <-weight_count[weight_count ==max(table(Q11$WEIGHT2))]
+weight_mode
+```
+
+
+
+### Q13 Discussion:
+Your Q13 discussion goes here. Feel free to add more lines as needed.
+
+What do these statistics reveal? Be sure to address each variable 
+
+---------------------------------------------------------------------------
+EDUCA:
+
+count for each education level:
+ 2      3      4      5      6 
+8827  19991  111646 110266  149118 
+
+Mode: 6 
+
+Percentage:
+  2     3     4     5     6 
+ 2.21  5.00 27.92 27.58  37.29  
+
+These statistics reveal that the mode, most common education level, category 6 -
+College 4 years + with 37.29% of respondents falling into this category. The 
+next most common education level is category 4 - Grade 12 or GED with 27.92% of 
+the respondents in this category. Third place category 5 - College 1 year to 3
+years is very close to 2nd place, with 27.58% of respondents. The least common
+education level is never attending school or only kindergarten, coming in at 
+2.21% of respondents falling into this category.
+-------------------------------------------------------------------------------   
+EMPLOY1:
+
+count:
+    1      2      3      4     5      6      7      8 
+163251  33957   8666   8265  23452  10607  122554  29096 
+
+Mode: 1 
+
+Percentages:
+   1     2     3     4     5     6     7     8 
+40.83  8.49  2.17  2.07  5.87  2.65  30.65  7.28  
+
+These statistics reveal that the,mode, most common employment type is  category
+1 -employed for wage at 40.83% of respondents falling into this category. The 
+next most common employment type is category 7 - Retired 30.65% of respondents 
+falling into this category. The least common employment type is category 4 - Out 
+of work for less than 1 year at 2.07 % of respondents fall into this category.
+---------------------------------------------------------------------------                                  
+HEIGHT3: height inches
+
+   Min.  1st Qu.  Median   Mean   3rd Qu.  Max. 
+  56.00   64.00   67.00   66.81   70.00   79.00 
+
+Mode: 66
+
+The lowest value is 56 and the highest is 79. This shows us the range of
+values in the data set. The Median, 67, is the middle value of all the data.
+The mean, the average of all the values is 66.81, and the
+mode, most occurring value is 66. 
+
+The mean, median and mode are all similar, telling us that the data is normally 
+distributed.Additionally, 50% of the data falls between the first quantile, 64,
+and the third quantile,70.
+----------------------------------------------------------------------------
+WEIGHT2: weight(pounds)
+
+Min.  1st Qu.  Median   Mean    3rd Qu.    Max. 
+90.0   145.0   172.0    178.3   200.0   506.0  
+
+Mode: 200 
+            
+The lowest value is 90, and the highest is 506, this shows us the range of all
+values in the data set. The Median, 172, tells the middle value. The mean,178.3,
+is the average of all the data. The mean, 178.3, and the median, 172, are very 
+close together. The mode, 200, and is higher than the mean and median. This 
+tells us there's a left skewed distribution of the data. Additionally, 50% of 
+the data falls between the first quantile, 145,and the third quantile,200.
+----------------------------------------------------------------------------
+
+### Q14
+
+Finally, run at least 2 different, appropriate regressions predicting the variable you indicated in Q10. These regressions should use different predictor(s). Organize and explain your code within the code chunk using comments. Identify the best model and provide a discussion of your observations in the *Q14 Discussion* section provided below. Be organized and detailed in your discussion.
+
+```{r}
+### Do not edit the following line. It is used by CodeGrade.
+# CG Q14 # 
+
+### TYPE YOUR CODE BELOW ###
+```
+
+
+```{r}
+#model 1, linear model using EMPLOY1 to predict EDUCA
+Q11.emp <- lm(EDUCA ~ EMPLOY1, data = Q11)
+
+summary_Q11.emp <- summary(Q11.emp)
+summary_Q11.emp
+
+Q11.emp_AIC <- round(AIC(Q11.emp),2)
+```
+
+```{r}
+#model 2, linear model using HEIGHT3 to predict EDUCA
+Q11.height <- lm(EDUCA ~ HEIGHT3, data = Q11)
+
+summary_Q11.height <- summary(Q11.height)
+summary_Q11.height
+
+Q11.height_AIC <- round(AIC(Q11.height),2)
+```
+
+```{r}
+#model 3, linear model using WEIGHT2 to predict EDUCA
+Q11.weight <- lm(EDUCA ~ WEIGHT2, data = Q11)
+
+summary_Q11.weight <- summary(Q11.weight)
+summary_Q11.weight
+
+Q11.weight_AIC <- round(AIC(Q11.weight),2)
+
+```
+```{r}
+#model 4, linear model using HEIGHT3 + WEIGHT2 to predict EDUCA
+Q11.h_w <- lm(EDUCA ~ HEIGHT3 + WEIGHT2, data = Q11)
+
+summary_Q11.h_w <- summary(Q11.h_w)
+summary_Q11.h_w
+
+Q11.h_w_AIC <- round(AIC(Q11.h_w),2)
+```
+
+```{r}
+#model 5, linear model using EMPLOY1 + HEIGHT3 + WEIGHT2 to predict EDUCA
+Q11.emp_h_w <- lm(EDUCA ~ EMPLOY1 + HEIGHT3 + WEIGHT2, data = Q11)
+
+summary_Q11.emp_h_w <- summary(Q11.emp_h_w)
+summary_Q11.emp_h_w
+
+Q11.emp_h_w_AIC <- round(AIC(Q11.emp_h_w),2)
+
+```
+
+```{r}
+#comparing models with ANOVA
+anova_all_models <- anova(Q11.emp,Q11.height, Q11.weight, Q11.h_w, Q11.emp_h_w)
+anova_all_models
+```
+
+```{r}
+anova_two_best_models <-anova(Q11.h_w,Q11.emp_h_w)
+anova_two_best_models
+```
+
+
+```{r}
+AIC_results <- data.frame(
+  "Models" = c("Employment", "Height/Weight" ,
+               "Height", "Weight","Employment/Height/Weight"), 
+     "AIC" = c(Q11.emp_AIC, Q11.h_w_AIC, 
+               Q11.height_AIC, Q11.weight_AIC, Q11.emp_h_w_AIC )) |>
+  arrange(AIC, desc = FALSE)
+ 
+AIC_results
+```
+### Q14 Discussion:
+Your Q14 discussion goes here. Feel free to add more lines as needed.
+
+Question 14 uses variables EPMLOY1, HEIGHT3, and WEIGHT2 to predict a persons
+EDUCA, education level. 
+
+5 linear models were created to find the best model to predict EDUCA.
+
+The first models used EMPLOY1 to predict EDUCA. This model has a p-value that is
+statistically significant, and  has a multiple R-squared of 0.03336, and
+an adjusted R-squared of 0.03335. This model has only one predictor variable,
+so that is why the R2 and adjusted R2 are basically the same. The R2 tells us 
+that 34% of the variance can be explained by the independent variable.
+ 
+A higher R squared and Adj R2 are better, since higher R2 and Adjust R2 show 
+predictive accuracy, explaining how the model observes the data.
+ 
+The second used HEIGHT3 to predict EDUCA. This model has a p-value that is 
+statistically significant, and  has a multiple R-squared of 0.01207, and
+ an adjusted R-squared of 0.01207.This model has only one predictor variable,
+so that is why the R2 and adjusted R2 are basically the same. The R2 tells us 
+that 12% of the variance can be explained by the independent variable.
+
+The third model used WEIGHT2 to predict EDUCA. This model has a p-value that is
+statistically significant, and  has a multiple R-squared of 0.0004774, and
+ an adjusted R-squared of 0.0004749. The R2 tells us that 4.8% of the variance 
+ can be explained by the independent variable
+ 
+The forth model used HEIGHT3 & WEIGHT2 to predict EDUCA. Both variables have 
+a statistically significant p-value. The model  produces multiple R-squared 
+of 0.01939 and an adjusted R-squared of 0.01938. The R2 tells us 
+that 19.39% of the variance can be explained by the independent variable. This
+model has 2 predictors and the adjusted R2 takes the extra variables into 
+consideration to determine the models fit. In this model the adjusted R2 values 
+is almost the same as the R2 value. This tells us the the second
+predictor improves the model as expected. 
+
+The fifth models used EMPLOY1, HEIGHT3 AND WEIGHT2 to predict EDUCA. All three
+variables have a statistically significant p-value.The model has a multiple 
+R-squared of 0.04734, and adjusted R-squared of 0.04734.The R2 tells us 
+that 47.73% of the variance can be explained by the independent variable. This
+model has 2 predictors and the adjusted R2 takes the extra variables into 
+consideration to determine the models fit. In this model the adjusted R2 values 
+is almost the same as the R2 value. This tells us the the second
+predictor improves the model as expected. 
+
+next I used ANOVA() to compare all models. Model 4 (HEIGHT3 and WEIGHT2 
+to predict EDUCA) and model 5 (EMPLOY1, HEIGHT3 AND WEIGHT2 to predict EDUCA) 
+have a statistically significant p-value. Showing there is a 
+statistically significant difference between model 4 and 5 to and all the other
+models' group means with the ANOVA test.
+
+next used ANOVA() to compare the two models, model 4 and model 5, that have a
+statistically significant p-value in the first anova test. The second anova 
+showed a statistically significant p-value for model 5 (EDUCA ~ EMPLOY1 + 
+HEIGHT3 + WEIGHT2). This tells us there is a difference between the models' 
+group means with this ANOVA test.
+
+The AIC tells us how well a model will predict with new data. When comparing the
+IAC of all the models, this shows that the fifth model (EDUCA ~ EMPLOY1 + 
+HEIGHT3 + WEIGHT2) has the lowest AIC, indicating that this is the best model.
+
+The best model is model 5, using EMPLOY1, HEIGHT3 and WEIGHT2 to predict EDUCA.
+This model was chosen because for a few reasons, fist it has the lowest AIC. The 
+next reason is because all variables have p-value that are significant in the 
+summary of the linear model.Another reason is when comparing all 5 models with
+ANOVA() function,it shows us that model 5 and 4 were the only models with a 
+statistically significant p-value. Additionally when using 
+ANOVA () to compare model 4 and 5, shows a statistically 
+significant difference between these two models. The fifth model
+is the better model, so that's why I chose model 5 (EDUCA ~ EMPLOY1 + 
+HEIGHT3 + WEIGHT2)
+
+------------------------------------------------------------------------
+
+# Before submitting to Code Grade:
+
+1)  Clear objects from your environment. Click the broom in the Environment pane in the top right. This will erase any variables (like Q1, Q2) that you've stored.
+
+2)  Rerun all your code. You can click the "Run" option above in this script pane (top right of notebook), then select "Run all". You should have all the variables stored again in the environment pane, and you should see no red error messages in the console below.
+
+3)  **Important**: You only have ONE ATTEMPT to submit Part 2 to the ACTUAL submission link! Ensure you are ready and confident in your work before submitting.
+
+4)  Reread all the directions and questions and make sure you addressed each part carefully, clearly, and thoughtfully.
+
+------------------------------------------------------------------------
